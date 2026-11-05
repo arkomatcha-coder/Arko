@@ -1,0 +1,271 @@
+from pathlib import Path
+import re, json, os, textwrap
+
+src_path = Path('/mnt/data/Teks yang ditempel (1)(2).txt')
+html = src_path.read_text(encoding='utf-8')
+
+css = r'''
+/* ===== FITUR SOAL LATIHAN ADALUANG ===== */
+.quiz-page { max-width: 1050px; margin: 0 auto; }
+.quiz-intro { background: linear-gradient(135deg,#eff6ff,#f5f3ff); border:1px solid #dbeafe; border-radius:18px; padding:20px; margin-bottom:18px; }
+.quiz-tabs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin:18px 0; }
+.quiz-tab { border:1px solid var(--line,#dbe3f0); background:#fff; color:var(--ink,#172554); border-radius:13px; padding:13px 10px; font:inherit; font-weight:800; cursor:pointer; }
+.quiz-tab.active { color:#fff; background:var(--primary,#2563eb); border-color:var(--primary,#2563eb); }
+.quiz-card { background:#fff; border:1px solid var(--line,#dbe3f0); border-radius:16px; padding:18px; margin:14px 0; }
+.quiz-card h3 { margin:0 0 12px; color:var(--ink,#172554); }
+.quiz-question { font-weight:700; line-height:1.65; margin-bottom:12px; }
+.quiz-option { display:flex; gap:10px; align-items:flex-start; padding:11px 12px; border:1px solid #dbe3f0; border-radius:11px; margin:8px 0; cursor:pointer; }
+.quiz-option:hover { background:#f8fbff; }
+.quiz-option input { margin-top:4px; }
+.quiz-actions { display:flex; flex-wrap:wrap; gap:10px; margin-top:16px; }
+.quiz-btn { border:0; border-radius:11px; padding:11px 16px; background:var(--primary,#2563eb); color:white; font-weight:800; cursor:pointer; }
+.quiz-btn.secondary { background:#e8eef9; color:#23365f; }
+.quiz-btn:disabled { opacity:.55; cursor:not-allowed; }
+.quiz-feedback { padding:12px 14px; border-radius:11px; margin-top:10px; background:#f1f5f9; line-height:1.6; }
+.quiz-feedback.correct { background:#ecfdf5; border:1px solid #a7f3d0; }
+.quiz-feedback.wrong { background:#fff7ed; border:1px solid #fed7aa; }
+.quiz-score { border-radius:15px; background:#eff6ff; border:1px solid #bfdbfe; padding:18px; margin-top:16px; }
+.quiz-progress { height:9px; background:#e5eaf3; border-radius:99px; overflow:hidden; margin:12px 0; }
+.quiz-progress > span { display:block; height:100%; background:#2563eb; width:0; transition:width .2s; }
+.quiz-essay textarea { width:100%; min-height:105px; padding:12px; border:1px solid #cbd5e1; border-radius:10px; font:inherit; resize:vertical; }
+.match-list { display:grid; gap:12px; }
+.match-row { display:grid; grid-template-columns:minmax(0,1fr) minmax(180px,1fr); gap:12px; align-items:center; }
+.match-term { background:#eff6ff; border:1px solid #bfdbfe; padding:13px; border-radius:11px; font-weight:800; }
+.match-target { min-height:48px; border:2px dashed #94a3b8; border-radius:11px; padding:10px; background:#fafcff; }
+.match-target.over { border-color:#2563eb; background:#eff6ff; }
+.match-bank { display:flex; flex-wrap:wrap; gap:9px; margin:14px 0; padding:13px; border:1px solid #e2e8f0; border-radius:12px; }
+.match-chip { border:1px solid #c7d2fe; background:#eef2ff; color:#312e81; padding:9px 12px; border-radius:10px; cursor:grab; font-weight:700; }
+.match-chip.selected { outline:3px solid #93c5fd; }
+.match-chip.used { opacity:.35; }
+.quiz-small { color:var(--muted,#64748b); font-size:.92rem; }
+@media(max-width:650px){.quiz-tabs{grid-template-columns:1fr}.match-row{grid-template-columns:1fr}.quiz-card{padding:14px}}
+'''
+
+# inject CSS
+html = html.replace('</style>', css + '\n</style>', 1)
+
+quiz_section = r'''
+  <section id="quizPage" class="panel hidden quiz-page">
+    <div class="panel-head">
+      <div class="welcome-icon">📝</div>
+      <h2>Soal Latihan ADALUANG</h2>
+      <p>Uji pemahamanmu tentang Peluang Kejadian dan Peluang Kejadian Majemuk.</p>
+    </div>
+    <div class="quiz-intro">
+      <strong>Petunjuk pengerjaan</strong>
+      <p>Pilih jenis latihan yang ingin dikerjakan. Pilihan ganda dinilai otomatis, esai dapat ditulis dan diperiksa menggunakan pedoman jawaban, sedangkan latihan mencocokkan dikerjakan dengan menyeret atau mengetuk pasangan jawaban.</p>
+      <p class="quiz-small">Materi: ruang sampel, titik sampel, frekuensi relatif, peluang kejadian, komplemen, frekuensi harapan, saling lepas, tidak saling lepas, saling bebas, dan peluang bersyarat.</p>
+    </div>
+    <div class="quiz-tabs" role="tablist" aria-label="Jenis soal latihan">
+      <button class="quiz-tab active" type="button" data-quiz="mc">Pilihan Ganda</button>
+      <button class="quiz-tab" type="button" data-quiz="essay">Soal Esai</button>
+      <button class="quiz-tab" type="button" data-quiz="match">Mencocokkan</button>
+    </div>
+    <div id="quizMc" class="quiz-mode">
+      <div class="quiz-card">
+        <h3>Latihan Pilihan Ganda</h3>
+        <p class="quiz-small">Pilih satu jawaban yang paling tepat pada setiap soal. Terdapat 12 soal.</p>
+        <div class="quiz-progress"><span id="mcProgress"></span></div>
+        <div id="mcQuestions"></div>
+        <div class="quiz-actions">
+          <button class="quiz-btn" type="button" id="submitMc">Periksa Jawaban</button>
+          <button class="quiz-btn secondary" type="button" id="resetMc">Ulangi Latihan</button>
+        </div>
+        <div id="mcResult" aria-live="polite"></div>
+      </div>
+    </div>
+    <div id="quizEssay" class="quiz-mode hidden">
+      <div class="quiz-card quiz-essay">
+        <h3>Latihan Esai</h3>
+        <p class="quiz-small">Tuliskan proses penyelesaian secara runtut. Gunakan tombol “Lihat pedoman jawaban” setelah selesai untuk membandingkan jawabanmu. Terdapat 6 soal.</p>
+        <div id="essayQuestions"></div>
+        <div class="quiz-actions">
+          <button class="quiz-btn secondary" type="button" id="toggleEssayGuide">Lihat Pedoman Jawaban</button>
+          <button class="quiz-btn secondary" type="button" id="resetEssay">Kosongkan Jawaban</button>
+        </div>
+        <div id="essayGuide" class="hidden"></div>
+      </div>
+    </div>
+    <div id="quizMatch" class="quiz-mode hidden">
+      <div class="quiz-card">
+        <h3>Latihan Mencocokkan</h3>
+        <p class="quiz-small">Seret pilihan jawaban ke kotak yang sesuai. Pada layar sentuh, ketuk pilihan jawaban kemudian ketuk kotak pasangannya. Terdapat 8 pasangan.</p>
+        <div id="matchBank" class="match-bank" aria-label="Pilihan jawaban"></div>
+        <div id="matchQuestions" class="match-list"></div>
+        <div class="quiz-actions">
+          <button class="quiz-btn" type="button" id="checkMatch">Periksa Pasangan</button>
+          <button class="quiz-btn secondary" type="button" id="resetMatch">Acak Ulang</button>
+        </div>
+        <div id="matchResult" aria-live="polite"></div>
+      </div>
+    </div>
+    <div class="quiz-actions">
+      <button class="back-btn" type="button" onclick="kembaliDashboard()">← Kembali ke Dashboard</button>
+    </div>
+  </section>
+'''
+# insert before comingPage section
+needle = '  <section id="comingPage"'
+idx = html.find(needle)
+assert idx >= 0
+html = html[:idx] + quiz_section + '\n' + html[idx:]
+
+# add page id
+html = html.replace('"teacherManagementPage", "materiPage", "comingPage"', '"teacherManagementPage", "materiPage", "quizPage", "comingPage"')
+
+# modify bukaFitur
+old = '''function bukaFitur(nama) {
+  $("comingTitle").textContent = nama;
+  showPage("comingPage");
+}'''
+new = '''function bukaFitur(nama) {
+  if (nama === "Soal Latihan") {
+    initQuiz();
+    showPage("quizPage");
+    return;
+  }
+  $("comingTitle").textContent = nama;
+  showPage("comingPage");
+}'''
+assert old in html
+html = html.replace(old, new)
+
+quiz_js = r'''
+/* ============================================================
+   SOAL LATIHAN ADALUANG — BERDASARKAN MATERI REVISI
+   ============================================================ */
+const mcData = [
+ {q:"Pada percobaan melempar sebuah dadu bersisi enam, ruang sampelnya adalah ...",o:["{1, 2, 3, 4, 5, 6}","{1, 2, 3}","{2, 4, 6}","{ganjil, genap}"],a:0,e:"Ruang sampel memuat seluruh hasil yang mungkin, yaitu 1, 2, 3, 4, 5, dan 6."},
+ {q:"Jika sebuah dadu dilempar sekali, kejadian muncul mata dadu ganjil adalah ...",o:["{2, 4, 6}","{1, 3, 5}","{1, 2, 3}","{3, 4, 5}"],a:1,e:"Bilangan ganjil pada dadu adalah 1, 3, dan 5."},
+ {q:"Sebuah koin dilempar 40 kali dan sisi gambar muncul 18 kali. Frekuensi relatif muncul gambar adalah ...",o:["0,18","0,40","0,45","0,55"],a:2,e:"Frekuensi relatif = banyak kemunculan / banyak percobaan = 18/40 = 0,45."},
+ {q:"Dalam kotak terdapat 5 bola merah, 3 biru, dan 2 hijau. Peluang terambil bola biru adalah ...",o:["1/5","3/10","1/2","3/5"],a:1,e:"Jumlah bola 10. Peluang biru = 3/10."},
+ {q:"Jika peluang suatu kejadian A adalah 0,35, peluang komplemen A adalah ...",o:["0,35","0,55","0,65","1,35"],a:2,e:"P(Aᶜ) = 1 − P(A) = 1 − 0,35 = 0,65."},
+ {q:"Peluang suatu kejadian A adalah 0,2. Jika percobaan dilakukan 150 kali, frekuensi harapan A adalah ...",o:["20","25","30","50"],a:2,e:"Fh(A) = P(A) × n = 0,2 × 150 = 30."},
+ {q:"Kejadian A dan B disebut saling lepas apabila ...",o:["selalu terjadi bersama","tidak memiliki anggota irisan","peluangnya selalu sama","kejadian A memengaruhi B"],a:1,e:"Kejadian saling lepas memenuhi A ∩ B = ∅ sehingga tidak dapat terjadi bersamaan."},
+ {q:"Jika P(A)=0,4 dan P(B)=0,3 serta A dan B saling lepas, maka P(A ∪ B) adalah ...",o:["0,1","0,12","0,7","1,2"],a:2,e:"Untuk kejadian saling lepas, P(A ∪ B)=P(A)+P(B)=0,4+0,3=0,7."},
+ {q:"Diketahui P(A)=0,6, P(B)=0,5, dan P(A ∩ B)=0,2. Nilai P(A ∪ B) adalah ...",o:["0,3","0,7","0,9","1,1"],a:2,e:"Kejadian tidak saling lepas: P(A ∪ B)=0,6+0,5−0,2=0,9."},
+ {q:"Dua kejadian A dan B saling bebas jika ...",o:["A dan B tidak mungkin terjadi bersama","terjadinya A tidak memengaruhi peluang B","A dan B selalu memiliki hasil sama","A merupakan komplemen B"],a:1,e:"Kejadian saling bebas berarti terjadinya satu kejadian tidak memengaruhi peluang kejadian lainnya."},
+ {q:"Jika P(A)=1/2 dan P(B)=1/3 serta A dan B saling bebas, maka P(A ∩ B) adalah ...",o:["1/6","2/5","5/6","1/2"],a:0,e:"P(A ∩ B)=P(A)×P(B)=1/2×1/3=1/6."},
+ {q:"Diketahui P(A ∩ B)=0,2 dan P(B)=0,5. Nilai P(A|B) adalah ...",o:["0,1","0,2","0,4","0,7"],a:2,e:"P(A|B)=P(A ∩ B)/P(B)=0,2/0,5=0,4."}
+];
+const essayData = [
+ {q:"Sebuah dadu bersisi enam dilempar satu kali. Tuliskan ruang sampel dan tentukan peluang muncul mata dadu lebih dari 4.",a:"Ruang sampel S={1,2,3,4,5,6}. Kejadian muncul lebih dari 4 adalah A={5,6}. Jadi P(A)=n(A)/n(S)=2/6=1/3."},
+ {q:"Dalam 80 kali percobaan, kejadian A muncul sebanyak 28 kali. Hitung frekuensi relatif kejadian A.",a:"Frekuensi relatif = n(A)/n = 28/80 = 0,35 atau 35%."},
+ {q:"Sebuah kejadian memiliki peluang 0,72. Tentukan peluang komplemennya dan frekuensi harapan komplemen tersebut jika percobaan dilakukan 200 kali.",a:"P(Aᶜ)=1−0,72=0,28. Frekuensi harapan = 0,28×200=56 kali."},
+ {q:"Diketahui P(A)=0,45, P(B)=0,35, dan A serta B saling lepas. Tentukan P(A ∪ B) dan jelaskan alasan menggunakan rumus tersebut.",a:"P(A ∪ B)=P(A)+P(B)=0,45+0,35=0,80. Rumus penjumlahan langsung digunakan karena kejadian saling lepas tidak memiliki irisan."},
+ {q:"Dari 50 siswa, 28 mengikuti klub musik, 20 mengikuti klub olahraga, dan 8 mengikuti keduanya. Tentukan peluang siswa yang dipilih mengikuti klub musik atau olahraga.",a:"n(A∪B)=28+20−8=40. Peluang=40/50=4/5=0,8."},
+ {q:"Diketahui P(A∩B)=0,18, P(A)=0,6, dan P(B)=0,3. Hitung P(A|B) dan P(B|A).",a:"P(A|B)=0,18/0,3=0,6. P(B|A)=0,18/0,6=0,3. Penyebut berbeda karena kejadian yang menjadi syarat berbeda."}
+];
+const matchData = [
+ {term:"Ruang sampel",def:"Himpunan seluruh hasil yang mungkin dari suatu percobaan."},
+ {term:"Frekuensi relatif",def:"Perbandingan banyak kemunculan kejadian dengan banyak percobaan."},
+ {term:"Peluang komplemen",def:"Peluang tidak terjadinya kejadian A, yaitu 1 − P(A)."},
+ {term:"Frekuensi harapan",def:"Hasil kali peluang kejadian dengan banyaknya percobaan."},
+ {term:"Kejadian saling lepas",def:"Dua kejadian yang tidak mempunyai anggota irisan."},
+ {term:"Kejadian tidak saling lepas",def:"Dua kejadian yang dapat terjadi bersamaan dan memiliki irisan."},
+ {term:"Kejadian saling bebas",def:"Dua kejadian yang tidak saling memengaruhi peluangnya."},
+ {term:"Peluang bersyarat",def:"Peluang suatu kejadian dengan diketahui kejadian lain telah terjadi."}
+];
+let quizInitialized = false;
+let selectedMatchChip = null;
+
+function initQuiz(){
+ if(quizInitialized) return;
+ quizInitialized = true;
+ document.querySelectorAll(".quiz-tab").forEach(btn=>btn.addEventListener("click",()=>{
+   document.querySelectorAll(".quiz-tab").forEach(x=>x.classList.toggle("active",x===btn));
+   ["mc","essay","match"].forEach(k=>$("quiz"+k.charAt(0).toUpperCase()+k.slice(1)).classList.toggle("hidden",btn.dataset.quiz!==k));
+ }));
+ renderMc(); renderEssay(); renderMatch();
+ $("submitMc").addEventListener("click",gradeMc);
+ $("resetMc").addEventListener("click",renderMc);
+ $("toggleEssayGuide").addEventListener("click",()=> $("essayGuide").classList.toggle("hidden"));
+ $("resetEssay").addEventListener("click",()=>{renderEssay();$("essayGuide").classList.add("hidden");});
+ $("checkMatch").addEventListener("click",gradeMatch);
+ $("resetMatch").addEventListener("click",renderMatch);
+}
+
+function renderMc(){
+ $("mcResult").innerHTML="";
+ $("mcProgress").style.width="0%";
+ $("mcQuestions").innerHTML=mcData.map((q,i)=>`
+ <div class="quiz-card" data-mcq="${i}">
+  <div class="quiz-question">${i+1}. ${q.q}</div>
+  ${q.o.map((op,j)=>`<label class="quiz-option"><input type="radio" name="mc${i}" value="${j}"><span>${String.fromCharCode(65+j)}. ${op}</span></label>`).join("")}
+  <div class="quiz-feedback hidden" id="mcFeedback${i}"></div>
+ </div>`).join("");
+ $("mcQuestions").querySelectorAll("input").forEach(inp=>inp.addEventListener("change",()=>{
+  const done=mcData.filter((q,i)=>document.querySelector(`input[name="mc${i}"]:checked`)).length;
+  $("mcProgress").style.width=(done/mcData.length*100)+"%";
+ }));
+}
+function gradeMc(){
+ let score=0, unanswered=0;
+ mcData.forEach((q,i)=>{
+  const chosen=document.querySelector(`input[name="mc${i}"]:checked`);
+  const fb=$("mcFeedback"+i); fb.classList.remove("hidden","correct","wrong");
+  if(!chosen){unanswered++;fb.classList.add("wrong");fb.innerHTML="<strong>Belum dijawab.</strong> "+q.e;return;}
+  const ok=Number(chosen.value)===q.a;
+  if(ok)score++;
+  fb.classList.add(ok?"correct":"wrong");
+  fb.innerHTML=`<strong>${ok?"Benar.":"Belum tepat."}</strong> Jawaban: ${String.fromCharCode(65+q.a)}. ${q.o[q.a]}<br>${q.e}`;
+ });
+ const pct=Math.round(score/mcData.length*100);
+ $("mcResult").innerHTML=`<div class="quiz-score"><h3>Hasil Latihan</h3><strong>${score} dari ${mcData.length} benar (${pct}/100)</strong><p>${unanswered?unanswered+" soal belum dijawab. ":""}${pct>=80?"Pemahamanmu sudah sangat baik.":pct>=60?"Terus tingkatkan pemahaman dengan membaca pembahasan.":"Pelajari kembali materi dan pembahasannya, lalu coba lagi."}</p></div>`;
+}
+function renderEssay(){
+ $("essayQuestions").innerHTML=essayData.map((q,i)=>`<div class="quiz-card"><div class="quiz-question">${i+1}. ${q.q}</div><textarea id="essayAnswer${i}" placeholder="Tuliskan langkah penyelesaian dan jawabanmu..."></textarea></div>`).join("");
+ $("essayGuide").innerHTML="<h3>Pedoman Jawaban</h3>"+essayData.map((q,i)=>`<div class="quiz-feedback"><strong>Soal ${i+1}</strong><br>${q.a}</div>`).join("");
+}
+function shuffle(a){const x=[...a];for(let i=x.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[x[i],x[j]]=[x[j],x[i]];}return x;}
+function renderMatch(){
+ selectedMatchChip=null;
+ $("matchResult").innerHTML="";
+ const defs=shuffle(matchData.map((x,i)=>({id:i,def:x.def})));
+ $("matchBank").innerHTML=defs.map(x=>`<button type="button" draggable="true" class="match-chip" data-match-id="${x.id}">${x.def}</button>`).join("");
+ $("matchQuestions").innerHTML=matchData.map((x,i)=>`<div class="match-row"><div class="match-term">${i+1}. ${x.term}</div><div class="match-target" data-target="${i}" tabindex="0">Letakkan pasangan jawaban di sini</div></div>`).join("");
+ document.querySelectorAll(".match-chip").forEach(chip=>{
+  chip.addEventListener("dragstart",e=>e.dataTransfer.setData("text/plain",chip.dataset.matchId));
+  chip.addEventListener("click",()=>{
+   if(selectedMatchChip) selectedMatchChip.classList.remove("selected");
+   selectedMatchChip=chip; chip.classList.add("selected");
+  });
+ });
+ document.querySelectorAll(".match-target").forEach(target=>{
+  target.addEventListener("dragover",e=>{e.preventDefault();target.classList.add("over");});
+  target.addEventListener("dragleave",()=>target.classList.remove("over"));
+  target.addEventListener("drop",e=>{e.preventDefault();target.classList.remove("over");placeMatch(target,Number(e.dataTransfer.getData("text/plain")));});
+  target.addEventListener("click",()=>{
+   if(selectedMatchChip){placeMatch(target,Number(selectedMatchChip.dataset.matchId));selectedMatchChip.classList.remove("selected");selectedMatchChip=null;}
+  });
+  target.addEventListener("keydown",e=>{if((e.key==="Enter"||e.key===" ")&&selectedMatchChip){e.preventDefault();placeMatch(target,Number(selectedMatchChip.dataset.matchId));}});
+ });
+}
+function placeMatch(target,id){
+ const chip=document.querySelector(`.match-chip[data-match-id="${id}"]`);
+ if(!chip || chip.classList.contains("used")) return;
+ const previous=target.dataset.answer;
+ if(previous!==undefined){const old=document.querySelector(`.match-chip[data-match-id="${previous}"]`);if(old)old.classList.remove("used");}
+ target.dataset.answer=String(id);target.textContent=matchData[id].def;
+ chip.classList.add("used");
+}
+function gradeMatch(){
+ let correct=0,filled=0;
+ document.querySelectorAll(".match-target").forEach(t=>{
+  const id=t.dataset.answer;
+  t.style.borderColor="#94a3b8";
+  if(id!==undefined){filled++;if(Number(id)===Number(t.dataset.target)){correct++;t.style.borderColor="#059669";}else{t.style.borderColor="#ea580c";}}
+ });
+ $("matchResult").innerHTML=`<div class="quiz-score"><h3>Hasil Mencocokkan</h3><strong>${correct} dari ${matchData.length} pasangan benar</strong><p>${filled<matchData.length?`Masih ada ${matchData.length-filled} pasangan yang belum diisi. `:""}Cocokkan kembali pasangan yang belum tepat, kemudian periksa ulang.</p></div>`;
+}
+'''
+
+# insert quiz JS before showPage("home");
+marker = 'showPage("home");'
+idx = html.rfind(marker)
+assert idx >= 0
+html = html[:idx] + quiz_js + '\n\n' + html[idx:]
+
+out = Path('/mnt/data/ADALUANG_Revisi_Soal_Latihan.html')
+out.write_text(html, encoding='utf-8')
+print(out, out.stat().st_size, 'bytes')
